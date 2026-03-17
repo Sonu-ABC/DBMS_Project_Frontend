@@ -143,6 +143,22 @@ def delete_device(device_id: str):
     get_db().monitoring_devices.delete_one({"_id": ObjectId(device_id)})
 
 
+def assign_device_to_patient(device_id: str, patient_id: str):
+    """Assign a monitoring device to a specific patient."""
+    get_db().monitoring_devices.update_one(
+        {"_id": ObjectId(device_id)},
+        {"$set": {"assigned_patient_id": patient_id}}
+    )
+
+
+def unassign_device(device_id: str):
+    """Remove patient assignment from a device."""
+    get_db().monitoring_devices.update_one(
+        {"_id": ObjectId(device_id)},
+        {"$unset": {"assigned_patient_id": ""}}
+    )
+
+
 # ---------------------------------------------------------------------------
 # Alerts (generated)
 # ---------------------------------------------------------------------------
@@ -170,8 +186,16 @@ def acknowledge_alert(alert_id: str):
     )
 
 
-def resolve_alert(alert_id: str):
+def resolve_alert(alert_id: str, action_notes: str = None):
+    """Mark an alert as resolved and optionally log the clinical steps taken."""
+    update_fields = {
+        "status": "Resolved",
+        "resolved_at": datetime.utcnow()
+    }
+    if action_notes:
+        update_fields["action_taken"] = action_notes
+
     get_db().alerts.update_one(
         {"_id": ObjectId(alert_id)},
-        {"$set": {"status": "Resolved", "resolved_at": datetime.utcnow()}}
+        {"$set": update_fields}
     )

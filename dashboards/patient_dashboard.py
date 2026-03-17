@@ -2,7 +2,7 @@
 import streamlit as st
 from components.sidebar import sidebar
 from components.charts import patient_line_chart, appointment_donut_chart
-from dashboards.a6_clinical_alerts import a6_clinical_alerts_page
+from dashboards.a6_patient_view import a6_patient_view_page
 
 # All categories and their modules
 CATEGORIES = {
@@ -161,7 +161,7 @@ def patient_dashboard():
 
     # ROUTER
     if st.session_state.view == "a6_module":
-        a6_clinical_alerts_page()
+        a6_patient_view_page()
     elif st.session_state.view == "category":
         show_category_view()
     elif st.session_state.view == "module":

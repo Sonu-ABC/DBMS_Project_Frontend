@@ -7,6 +7,9 @@ from backend.models import (
     insert_alert,
     get_alerts,
     get_escalation_pathways,
+    get_resolved_alerts,
+    acknowledge_alert,
+    resolve_alert,
 )
 from backend.ews import calculate_news
 

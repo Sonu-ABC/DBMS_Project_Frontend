@@ -8,8 +8,8 @@ from datetime import datetime
 from backend.models import (
     get_patients, insert_patient, get_patient_by_id, delete_patient,
     get_vitals_for_patient, insert_vital_sign, get_all_recent_vitals,
-    get_alert_rules, insert_alert_rule, delete_alert_rule,
-    get_devices, insert_device, delete_device,
+    get_alert_rules, insert_alert_rule, delete_alert_rule, update_alert_rule,
+    get_devices, insert_device, delete_device, assign_device_to_patient, unassign_device,
     get_escalation_pathways, insert_escalation_pathway, delete_escalation_pathway,
     get_alerts, acknowledge_alert, resolve_alert, get_latest_vitals,
 )
@@ -97,17 +97,25 @@ def _tab_dashboard():
                 st.markdown(f"**{sev}**")
             with col_c:
                 ack_key = f"ack_{alert['_id']}"
-                res_key = f"res_{alert['_id']}"
-                bc1, bc2 = st.columns(2)
                 if alert.get("status") == "Active":
-                    if bc1.button("✔ Ack", key=ack_key):
+                    if st.button("✔ Ack", key=ack_key):
                         acknowledge_alert(str(alert["_id"]))
                         st.rerun()
-                if alert.get("status") != "Resolved":
-                    if bc2.button("✅ Resolve", key=res_key):
-                        resolve_alert(str(alert["_id"]))
-                        st.rerun()
             st.markdown("---")
+            if alert.get("status") != "Resolved":
+                with st.expander("🩺 Resolve Alert & Log Actions"):
+                    with st.form(f"resolve_form_{alert['_id']}"):
+                        action_notes = st.text_area(
+                            "Clinical Steps Taken",
+                            placeholder="e.g., Administered O2 at 2L/min, notified Dr. Smith",
+                        )
+                        if st.form_submit_button("✅ Resolve Alert"):
+                            if action_notes.strip():
+                                resolve_alert(str(alert["_id"]), action_notes)
+                                st.success("Alert resolved with action log.")
+                                st.rerun()
+                            else:
+                                st.error("Please log the actions taken before resolving.")
     else:
         st.success("✅ No active alerts. All vitals are within normal ranges.")
 
@@ -356,13 +364,35 @@ def _tab_alert_rules():
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-        # Delete
-        del_id = st.text_input("Enter Rule ID to delete", key="del_rule")
-        if st.button("🗑️ Delete Rule"):
-            if del_id:
-                delete_alert_rule(del_id)
-                st.success("Rule deleted.")
-                st.rerun()
+        # Delete / Edit Section
+        st.divider()
+        st.markdown("### Update or Delete Rule")
+        
+        rule_opts = {f"{r.get('vital_type')} ({r.get('severity_level')})": str(r["_id"]) for r in rules}
+        sel_rule_key = st.selectbox("Select Rule to Modify", ["None"] + list(rule_opts.keys()))
+        
+        if sel_rule_key != "None":
+            rule_id_str = rule_opts[sel_rule_key]
+            # find original rule data
+            r_data = next((x for x in rules if str(x["_id"]) == rule_id_str), None)
+            
+            with st.expander("✏️ Edit Selected Rule"):
+                with st.form(f"edit_rule_{rule_id_str}"):
+                    er3, er4 = st.columns(2)
+                    new_min = er3.number_input("Min Value", value=float(r_data.get("min_value", 0.0)), step=0.1)
+                    new_max = er4.number_input("Max Value", value=float(r_data.get("max_value", 100.0)), step=0.1)
+                    
+                    if st.form_submit_button("Update Rule Limits"):
+                        update_alert_rule(rule_id_str, {"min_value": new_min, "max_value": new_max})
+                        st.success("Rule updated successfully.")
+                        st.rerun()
+
+            with st.expander("🗑️ Delete Selected Rule"):
+                st.warning("Are you sure you want to delete this rule?")
+                if st.button("Confirm Delete"):
+                    delete_alert_rule(rule_id_str)
+                    st.success("Rule deleted.")
+                    st.rerun()
     else:
         st.info("No alert rules configured. Add rules above.")
 
@@ -397,26 +427,73 @@ def _tab_devices():
 
     st.divider()
 
+    # ── Assign Device to Patient ──────────────────────────────────────────
+    with st.expander("🔗 Assign Device to Patient"):
+        devices = get_devices()
+        patients = get_patients()
+        
+        if not devices or not patients:
+            st.info("Ensure both Devices and Patients are registered to make assignments.")
+        else:
+            with st.form("assign_device_form"):
+                d_c1, d_c2 = st.columns(2)
+                
+                device_opts = {f"{d['device_name']} ({d['location']})": str(d["_id"]) for d in devices if d.get("status") == "Active"}
+                patient_opts = {f"{p['first_name']} {p['last_name']}": str(p["_id"]) for p in patients}
+                
+                sel_device = d_c1.selectbox("Select Device", ["None"] + list(device_opts.keys()))
+                sel_patient = d_c2.selectbox("Select Patient", ["None"] + list(patient_opts.keys()))
+                
+                submit_assign = st.form_submit_button("Assign")
+                
+                if submit_assign:
+                    if sel_device != "None" and sel_patient != "None":
+                        assign_device_to_patient(device_opts[sel_device], patient_opts[sel_patient])
+                        st.success("✅ Device successfully assigned!")
+                        st.rerun()
+                    else:
+                        st.error("Please select both a valid Device and Patient.")
+
+    st.divider()
+
     devices = get_devices()
     if devices:
         rows = []
         for d in devices:
+            assigned_id = d.get("assigned_patient_id")
+            patient_name = "None"
+            if assigned_id:
+                pat = get_patient_by_id(assigned_id)
+                if pat:
+                    patient_name = f"{pat.get('first_name', '')} {pat.get('last_name', '')}"
+            
             rows.append({
                 "ID": str(d["_id"]),
                 "Name": d.get("device_name", ""),
                 "Type": d.get("device_type", ""),
                 "Location": d.get("location", ""),
                 "Status": d.get("status", ""),
+                "Assigned Patient": patient_name
             })
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-        del_id = st.text_input("Enter Device ID to delete", key="del_device")
-        if st.button("🗑️ Delete Device"):
-            if del_id:
-                delete_device(del_id)
-                st.success("Device deleted.")
-                st.rerun()
+        d_col1, d_col2 = st.columns(2)
+        with d_col1:
+            unassign_id = st.text_input("Enter Device ID to unassign", key="unassign_device")
+            if st.button("🔗 Unassign Device"):
+                if unassign_id:
+                    unassign_device(unassign_id)
+                    st.success("Device unassigned.")
+                    st.rerun()
+        
+        with d_col2:
+            del_id = st.text_input("Enter Device ID to delete", key="del_device")
+            if st.button("🗑️ Delete Device"):
+                if del_id:
+                    delete_device(del_id)
+                    st.success("Device deleted.")
+                    st.rerun()
     else:
         st.info("No devices registered yet.")
 

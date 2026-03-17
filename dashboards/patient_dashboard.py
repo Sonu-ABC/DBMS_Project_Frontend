@@ -2,6 +2,7 @@
 import streamlit as st
 from components.sidebar import sidebar
 from components.charts import patient_line_chart, appointment_donut_chart
+from dashboards.a6_clinical_alerts import a6_clinical_alerts_page
 
 # All categories and their modules
 CATEGORIES = {
@@ -159,7 +160,9 @@ def patient_dashboard():
         st.session_state.selected_module = None
 
     # ROUTER
-    if st.session_state.view == "category":
+    if st.session_state.view == "a6_module":
+        a6_clinical_alerts_page()
+    elif st.session_state.view == "category":
         show_category_view()
     elif st.session_state.view == "module":
         show_module_detail()
@@ -347,8 +350,11 @@ def show_category_view():
                 mcol2.metric("Records", f"{records:,}")
                 
                 if st.button("→", key=f"mod_{code}", use_container_width=True):
-                    st.session_state.selected_module = module
-                    st.session_state.view = "module"
+                    if code == "A6":
+                        st.session_state.view = "a6_module"
+                    else:
+                        st.session_state.selected_module = module
+                        st.session_state.view = "module"
                     st.rerun()
                 st.markdown("---")
     

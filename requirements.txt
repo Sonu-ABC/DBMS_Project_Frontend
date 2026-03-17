@@ -1,3 +1,7 @@
 streamlit
 streamlit-option-menu
 matplotlib
+pymongo[srv]
+python-dotenv
+dnspython
+pandas

@@ -11,10 +11,17 @@ from backend.models import (
     get_alert_rules, insert_alert_rule, delete_alert_rule, update_alert_rule,
     get_devices, insert_device, delete_device, assign_device_to_patient, unassign_device,
     get_escalation_pathways, insert_escalation_pathway, delete_escalation_pathway,
-    get_alerts, acknowledge_alert, resolve_alert, get_latest_vitals,
+    get_alerts, get_latest_vitals,  # <-- Removed acknowledge/resolve from here
 )
 from backend.ews import calculate_mews, calculate_news, calculate_pews
-from backend.alert_engine import evaluate_vitals, evaluate_ews_for_vitals, get_active_alerts
+from backend.alert_engine import (
+    evaluate_vitals, 
+    evaluate_ews_for_vitals, 
+    get_active_alerts,
+    get_resolved_alerts,  # <-- Added new function here
+    acknowledge_alert,    # <-- Moved here
+    resolve_alert         # <-- Moved here
+)
 from backend.trend_analysis import get_moving_average, detect_deterioration, get_vital_time_series
 
 
@@ -79,48 +86,73 @@ def _tab_dashboard():
 
     st.divider()
 
-    # ── Active Alerts ─────────────────────────────────────────────────────
-    st.markdown("### 🔴 Active Alerts")
-    if active_alerts:
-        for alert in active_alerts[:10]:
-            sev = alert.get("severity_level", "Medium")
-            icon = {"Low": "🟡", "Medium": "🟠", "High": "🔴", "Critical": "⛔"}.get(sev, "🟠")
-            pid = alert.get("patient_id", "")
-            pat = get_patient_by_id(pid) if pid else None
-            pat_name = f"{pat['first_name']} {pat['last_name']}" if pat else pid
+    # Create sub-tabs for Alert Management
+    alert_tabs = st.tabs(["🔴 Needs Attention (Active)", "✅ Audit Trail (Resolved)"])
 
-            col_a, col_b, col_c = st.columns([5, 2, 2])
-            with col_a:
-                st.markdown(f"{icon} **{alert.get('message', '')}**")
-                st.caption(f"Patient: {pat_name} · {alert.get('created_at', '')}")
-            with col_b:
-                st.markdown(f"**{sev}**")
-            with col_c:
-                ack_key = f"ack_{alert['_id']}"
-                if alert.get("status") == "Active":
-                    if st.button("✔ Ack", key=ack_key):
-                        acknowledge_alert(str(alert["_id"]))
-                        st.rerun()
-            st.markdown("---")
-            if alert.get("status") != "Resolved":
+    # --- TAB 1: ACTIVE ALERTS ---
+    with alert_tabs[0]:
+        if active_alerts:
+            for alert in active_alerts:
+                sev = alert.get("severity_level", "Medium")
+                icon = {"Low": "🟡", "Medium": "🟠", "High": "🔴", "Critical": "⛔"}.get(sev, "🟠")
+                pid = alert.get("patient_id", "")
+                pat = get_patient_by_id(pid) if pid else None
+                pat_name = f"{pat['first_name']} {pat['last_name']}" if pat else pid
+
+                col_a, col_b, col_c = st.columns([5, 2, 2])
+                with col_a:
+                    st.markdown(f"{icon} **{alert.get('message', '')}**")
+                    st.caption(f"Patient: {pat_name} · Created: {alert.get('created_at', '')}")
+                with col_b:
+                    st.markdown(f"**{sev}**")
+                with col_c:
+                    ack_key = f"ack_{alert['_id']}"
+                    if alert.get("status") == "Active":
+                        if st.button("✔ Ack", key=ack_key, use_container_width=True):
+                            acknowledge_alert(str(alert["_id"]))
+                            st.rerun()
+                    elif alert.get("status") == "Acknowledged":
+                        st.markdown("👀 *Acknowledged*")
+                
+                st.markdown("---")
+                
                 with st.expander("🩺 Resolve Alert & Log Actions"):
                     with st.form(f"resolve_form_{alert['_id']}"):
                         action_notes = st.text_area(
                             "Clinical Steps Taken",
                             placeholder="e.g., Administered O2 at 2L/min, notified Dr. Smith",
                         )
-                        if st.form_submit_button("✅ Resolve Alert"):
+                        if st.form_submit_button("✅ Mark as Resolved"):
                             if action_notes.strip():
                                 resolve_alert(str(alert["_id"]), action_notes)
-                                st.success("Alert resolved with action log.")
+                                st.success("Alert resolved and logged to audit trail.")
                                 st.rerun()
                             else:
-                                st.error("Please log the actions taken before resolving.")
-    else:
-        st.success("✅ No active alerts. All vitals are within normal ranges.")
+                                st.error("You must log the clinical actions taken before resolving.")
+        else:
+            st.success("✅ No active alerts. All patient vitals are within safe thresholds.")
+
+    # --- TAB 2: RESOLVED ALERTS (AUDIT TRAIL) ---
+    with alert_tabs[1]:
+        # Make sure to import get_resolved_alerts at the top of your file
+        resolved_alerts = get_resolved_alerts() 
+        
+        if resolved_alerts:
+            for alert in resolved_alerts:
+                pid = alert.get("patient_id", "")
+                pat = get_patient_by_id(pid) if pid else None
+                pat_name = f"{pat['first_name']} {pat['last_name']}" if pat else pid
+                
+                with st.container():
+                    st.markdown(f"**{alert.get('message', '')}**")
+                    st.caption(f"Patient: {pat_name} · Resolved At: {alert.get('resolved_at', 'N/A')}")
+                    st.info(f"**Clinical Notes:** {alert.get('action_notes', 'No notes provided.')}")
+                    st.markdown("---")
+        else:
+            st.info("No resolved alerts in the recent audit history.")
 
     st.divider()
-
+    
     # ── EWS Score Cards ───────────────────────────────────────────────────
     st.markdown("### 📋 Patient EWS Scores")
     if patients:

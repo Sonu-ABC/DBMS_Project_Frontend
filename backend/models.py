@@ -178,13 +178,24 @@ def get_alerts(query: dict = None, limit: int = 100):
         .limit(limit)
     )
 
+def get_resolved_alerts(patient_id: str = None, limit: int = 50):
+    """Fetch the audit trail of resolved alerts."""
+    query = {"status": "Resolved"}
+    if patient_id:
+        query["patient_id"] = patient_id
+        
+    return list(
+        get_db().alerts
+        .find(query)
+        .sort("resolved_at", -1)
+        .limit(limit)
+    )
 
 def acknowledge_alert(alert_id: str):
     get_db().alerts.update_one(
         {"_id": ObjectId(alert_id)},
         {"$set": {"status": "Acknowledged", "acknowledged_at": datetime.utcnow()}}
     )
-
 
 def resolve_alert(alert_id: str, action_notes: str = None):
     """Mark an alert as resolved and optionally log the clinical steps taken."""
@@ -193,9 +204,10 @@ def resolve_alert(alert_id: str, action_notes: str = None):
         "resolved_at": datetime.utcnow()
     }
     if action_notes:
-        update_fields["action_taken"] = action_notes
+        update_fields["action_notes"] = action_notes # Synced with the UI variable
 
     get_db().alerts.update_one(
         {"_id": ObjectId(alert_id)},
         {"$set": update_fields}
     )
+    

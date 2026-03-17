@@ -2,7 +2,7 @@
 import streamlit as st
 from components.sidebar import sidebar
 from components.charts import patient_line_chart, appointment_donut_chart
-from dashboards.a6_clinical_alerts import a6_clinical_alerts_page
+from dashboards.a6_patient_view import a6_patient_view_page
 
 # All categories and their modules
 CATEGORIES = {
@@ -134,6 +134,7 @@ def patient_dashboard():
     st.session_state.setdefault("view", "main")
     st.session_state.setdefault("selected_category", None)
     st.session_state.setdefault("selected_module", None)
+    st.session_state.setdefault("current_sidebar", "Dashboard") # Track sidebar state
 
     # Sidebar
     selected = sidebar([
@@ -149,19 +150,22 @@ def patient_dashboard():
         "I - Integrated Capstone Projects"
     ])
 
-    # Handle sidebar selection
-    if selected != "Dashboard" and selected in CATEGORIES:
-        st.session_state.selected_category = selected
-        st.session_state.view = "category"
-        st.session_state.selected_module = None
-    elif selected == "Dashboard":
-        st.session_state.view = "main"
-        st.session_state.selected_category = None
-        st.session_state.selected_module = None
+    # IMPORTANT: Only update the view if the user ACTUALLY clicked a new sidebar item
+    if selected != st.session_state.current_sidebar:
+        st.session_state.current_sidebar = selected
+        
+        if selected == "Dashboard":
+            st.session_state.view = "main"
+            st.session_state.selected_category = None
+            st.session_state.selected_module = None
+        elif selected in CATEGORIES:
+            st.session_state.selected_category = selected
+            st.session_state.view = "category"
+            st.session_state.selected_module = None
 
     # ROUTER
     if st.session_state.view == "a6_module":
-        a6_clinical_alerts_page()
+        a6_patient_view_page()
     elif st.session_state.view == "category":
         show_category_view()
     elif st.session_state.view == "module":
@@ -225,7 +229,7 @@ def show_main_dashboard():
                     st.session_state.selected_category = "A - Patient Clinical Data"
                     st.session_state.view = "category"
                     st.rerun()
-        
+
         st.markdown("---")
         
         # Laboratory Card
@@ -335,6 +339,14 @@ def show_category_view():
     st.divider()
     st.markdown("## Modules")
     
+    # Callback function for navigation
+    def navigate_to_module(code_val, module_data):
+        if code_val == "A6":
+            st.session_state.view = "a6_module"
+        else:
+            st.session_state.selected_module = module_data
+            st.session_state.view = "module"
+
     # Module cards in grid
     cols = st.columns(3)
     for idx, module in enumerate(category['modules']):
@@ -349,20 +361,22 @@ def show_category_view():
                 mcol1.metric("Tables", tables)
                 mcol2.metric("Records", f"{records:,}")
                 
-                if st.button("→", key=f"mod_{code}", use_container_width=True):
-                    if code == "A6":
-                        st.session_state.view = "a6_module"
-                    else:
-                        st.session_state.selected_module = module
-                        st.session_state.view = "module"
-                    st.rerun()
+                # Using the on_click callback here
+                st.button(
+                    "→", 
+                    key=f"mod_btn_{code}", 
+                    use_container_width=True,
+                    on_click=navigate_to_module,
+                    args=(code, module)
+                )
                 st.markdown("---")
     
     st.divider()
     if st.button("⬅ Back to Dashboard"):
         st.session_state.view = "main"
+        st.session_state.current_sidebar = "Dashboard" # Sync sidebar state
         st.rerun()
-
+        
 def show_module_detail():
     code, name, desc, tables, records = st.session_state.selected_module
     cat_key = st.session_state.selected_category

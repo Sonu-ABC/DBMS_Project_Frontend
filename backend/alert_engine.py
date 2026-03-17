@@ -1,5 +1,6 @@
 # backend/alert_engine.py – Threshold-based alerting with escalation
 from datetime import datetime
+from bson.objectid import ObjectId
 from backend.db import get_db
 from backend.models import (
     get_alert_rules,
@@ -8,7 +9,6 @@ from backend.models import (
     get_escalation_pathways,
 )
 from backend.ews import calculate_news
-
 
 # Vital-type → field name in a vitals document
 VITAL_FIELDS = {
@@ -20,7 +20,6 @@ VITAL_FIELDS = {
     "SpO2": "spo2",
     "Pain Score": "pain_score",
 }
-
 
 def evaluate_vitals(patient_id: str, vitals: dict):
     """
@@ -75,7 +74,6 @@ def evaluate_vitals(patient_id: str, vitals: dict):
 
     return fired
 
-
 def evaluate_ews_for_vitals(patient_id: str, vitals: dict):
     """
     Compute NEWS score and fire an alert if score is Medium or above.
@@ -104,10 +102,41 @@ def evaluate_ews_for_vitals(patient_id: str, vitals: dict):
 
     return score, severity
 
-
 def get_active_alerts(patient_id: str = None):
     """Return active (non-resolved) alerts, optionally filtered by patient."""
-    query = {"status": {"$ne": "Resolved"}}
+    query = {"status": {"$in": ["Active", "Acknowledged"]}}
     if patient_id:
         query["patient_id"] = patient_id
+    
+    # Assuming get_alerts handles PyMongo cursor conversion
     return get_alerts(query)
+
+def get_resolved_alerts(patient_id: str = None, limit: int = 50):
+    """Fetch the audit trail of resolved alerts."""
+    query = {"status": "Resolved"}
+    if patient_id:
+        query["patient_id"] = patient_id
+        
+    db = get_db()
+    # Sort by resolution time, newest first
+    return list(db.alerts.find(query).sort("resolved_at", -1).limit(limit))
+
+def acknowledge_alert(alert_id_str: str):
+    """Move from Active to Acknowledged state."""
+    db = get_db()
+    db.alerts.update_one(
+        {"_id": ObjectId(alert_id_str)},
+        {"$set": {"status": "Acknowledged", "acknowledged_at": datetime.utcnow()}}
+    )
+
+def resolve_alert(alert_id_str: str, action_notes: str):
+    """Move to Resolved state and attach clinical audit notes."""
+    db = get_db()
+    db.alerts.update_one(
+        {"_id": ObjectId(alert_id_str)},
+        {"$set": {
+            "status": "Resolved", 
+            "action_notes": action_notes,
+            "resolved_at": datetime.utcnow()
+        }}
+    )

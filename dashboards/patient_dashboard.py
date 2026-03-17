@@ -225,7 +225,7 @@ def show_main_dashboard():
                     st.session_state.selected_category = "A - Patient Clinical Data"
                     st.session_state.view = "category"
                     st.rerun()
-        
+
         st.markdown("---")
         
         # Laboratory Card
